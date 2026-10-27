@@ -1,0 +1,25 @@
+# Environment variables
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Model weights
+Training/*.pt
+Training/*.task
+
+# Test videos
+Test_vod/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Generated frame dumps
+training_frames/
+test_frames_output/

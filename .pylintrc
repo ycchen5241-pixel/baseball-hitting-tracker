@@ -1,0 +1,40 @@
+[MASTER]
+# 忽略測試目錄與設定目錄的部分規則
+ignore=tests
+
+[MESSAGES CONTROL]
+# 停用不適用於此專案的規則
+disable=
+    C0114,  # missing-module-docstring（模組層級 docstring 非強制）
+    C0115,  # missing-class-docstring（由函數 docstring 替代）
+    R0903,  # too-few-public-methods（dataclass 常見）
+    W0611,  # unused-import（骨架階段暫時允許）
+
+[FORMAT]
+# 與 PROJECT_SPEC.md Section 12.2 一致
+max-line-length=80
+indent-string='    '
+
+[DESIGN]
+# 函數參數上限（Section 12.3：盡量 ≤ 2，超過用 dataclass）
+max-args=6
+# 位置引數上限（工具函數 ctx + 多參數場景）
+max-positional-arguments=6
+# OpenCV 幾何函數需要多個中間變數（contour/homography/panel 繪製）
+max-locals=25
+# 測試工具允許較長的主流程函數
+max-statements=55
+# TrackedBall 8 欄位；_PipelineData 新增 bat_body_dets 共 9 欄位
+max-attributes=9
+
+[VARIABLES]
+# 允許底線開頭的模組私用變數
+good-names=i,j,k,x,y,t,h,w,e,_
+
+[TYPECHECK]
+# OpenCV 與 numpy 的動態屬性
+generated-members=cv2.*,numpy.*,np.*
+
+[SIMILARITIES]
+# 最小相似行數；測試腳本共享視訊開啟樣板，提高閾值避免誤報
+min-similarity-lines=25
