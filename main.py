@@ -176,6 +176,7 @@ def _build_bat_trajectory(
     bat_head_dets: dict,
     bat_body_dets: dict,
     fps: float,
+    bat_fps: float,
     frame_width: int,
 ) -> list:
     """球棒揮棒軌跡構建：BatCloudTracker（靜止叢集/雜訊過濾 → 轉向角+片段合併
@@ -188,14 +189,26 @@ def _build_bat_trajectory(
     bat_head_dets 本身維持未過濾（與 tests/test_side_view_ev.py::_build_bat_trail
     一致），CloudBallTracker 的球棒佐證訊號與 compute_ball_physics() 的
     contact 備援訊號才不會意外吃到跟這裡不同調的過濾版本。
+
+    球棒軌跡判定專用 bat_fps（cv2 實測平均幀率，與
+    tests/test_bat_trail_cloud.py 同源）暫時覆蓋全域 fps 縮放常數——靜止
+    叢集/雜訊過濾/轉向角切窗全靠這組全域常數決定門檻，跟 EV/LA 計算用的
+    宣告幀率 fps（constants.VIDEO_FPS，理由見 process_video() 註解）是兩回
+    事，兩者 2026-10-27 討論後刻意分離：EV/LA 要準確的物理時間換算，球棒
+    軌跡判定則要跟 test_bat_trail_cloud.py 同調。離開本函式前必須還原成
+    fps，否則會汙染後續 CloudBallTracker/compute_ball_physics 用到的門檻。
     """
-    bat_head_f = filter_dets_by_p25(bat_head_dets)
-    bat_head_filled = fill_bat_top_gaps_with_body(bat_head_f, bat_body_dets)
-    raw = extract_bat_swing_trajectory(bat_head_filled)
-    if not raw:
-        return []
-    result = BatCloudTracker().process(raw, fps, frame_width)
-    return _swing_window_points(result, result.swing_windows)
+    constants.apply_fps_scaling(bat_fps)
+    try:
+        bat_head_f = filter_dets_by_p25(bat_head_dets)
+        bat_head_filled = fill_bat_top_gaps_with_body(bat_head_f, bat_body_dets)
+        raw = extract_bat_swing_trajectory(bat_head_filled)
+        if not raw:
+            return []
+        result = BatCloudTracker().process(raw, bat_fps, frame_width)
+        return _swing_window_points(result, result.swing_windows)
+    finally:
+        constants.apply_fps_scaling(fps)
 
 
 def _log_velocity_diagnostics(velocity_post: list, fps: float) -> None:
@@ -220,6 +233,7 @@ def _log_velocity_diagnostics(velocity_post: list, fps: float) -> None:
 def _run_physics(
     data: _PipelineData,
     fps: float,
+    bat_fps: float,
     total_frames: int,
     frame_width: int,
 ) -> _PhysicsResult:
@@ -230,7 +244,7 @@ def _run_physics(
     三邊改為共用同一份 contact_frame 判定 + velocity_post 建構 + Launch
     Angle + Exit Velocity 實作，不再各自維護（原待決問題 A 節分歧的根因）。
     """
-    bat_traj = _build_bat_trajectory(data.bat_head_dets, data.bat_body_dets, fps, frame_width)
+    bat_traj = _build_bat_trajectory(data.bat_head_dets, data.bat_body_dets, fps, bat_fps, frame_width)
     print(f"[main] Bat swing trajectory: {len(bat_traj)} frames")
 
     print("[main] CloudBallTracker: analyzing ball trajectory...")
@@ -533,10 +547,18 @@ def process_video(video_path: str) -> None:
     # 直接採用宣告的錄影幀率，不用 cap.get(CAP_PROP_FPS) 的全片平均值
     # （理由與 tests/test_side_view_ev.py 相同，2026-07-26 討論記錄）。
     fps = constants.VIDEO_FPS
+    # 球棒揮棒軌跡判定改用 cv2 實測平均幀率——跟 EV/LA 計算的時間基準
+    # （宣告幀率較準，見上）是兩回事：球棒軌跡只在乎跟
+    # tests/test_bat_trail_cloud.py 同調，不涉及真實物理時間換算
+    # （2026-10-27 討論記錄，見 _build_bat_trajectory()）。
+    bat_fps = cap.get(cv2.CAP_PROP_FPS) or fps
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"[main] {width}x{height} @ {fps:.0f}fps (assumed)  {total} frames")
+    print(
+        f"[main] {width}x{height} @ {fps:.0f}fps (assumed, EV/LA)"
+        f" / {bat_fps:.0f}fps (measured, bat trajectory)  {total} frames"
+    )
 
     constants.apply_fps_scaling(fps)
     data = _collect_data(model, cap, total)
@@ -544,7 +566,7 @@ def process_video(video_path: str) -> None:
 
     print(f"[main] Raw ball detections: {len(data.all_ball_dets)}")
 
-    result = _run_physics(data, fps, total, width)
+    result = _run_physics(data, fps, bat_fps, total, width)
 
     out_path = video_path.rsplit(".", 1)[0] + OUTPUT_SUFFIX + ".mp4"
     ctx = _VideoCtx(
